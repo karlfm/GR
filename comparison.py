@@ -11,13 +11,15 @@ import matplotlib.ticker as ticker
 #region
 # Initialize base state
 r_range = np.linspace(1.0, 2.0, 64)  # 64 points from 1 to 2 with step 1/63
-initial_gf = np.ones_like(r_range)
 initial_gr = np.ones_like(r_range)  # No initial growth
+# initial_gt linear profile from 1 to 1.5
+initial_gt = 1.0 + 0.5 * (r_range - 1.0)
+# initial_gt = np.ones_like(r_range)
 
 base_state = LT2.FastState(
     _Ri=1.0,
     gr=initial_gr,
-    gt=initial_gf,
+    gt=initial_gt,
     bc=-0.05,
     mu=1.0,
     gMax=1.5,
@@ -56,8 +58,9 @@ params = {
     "c": -0.05,
     "dt": 0.025,
     "set_point": 0.5,
-    "num_steps": 2,
+    "num_steps": 1,
     "mu": 1.0,
+    "g_1": 1.5,
     "g_2": 1.0,
 }
 
@@ -83,16 +86,14 @@ time = FEM_2D.annulus_growth.run_simulation(
     params, problem_vars, weak_form_defs, data_collector
     )
 
-np.array([next_state.radial_stress(ri, s) for s in r_range])
-
 # Create a figure with 3 subplots
 fig, axs = plt.subplots(1, 4, figsize=(18, 5))
-fig.suptitle("1D vs 2D Model After First Growth Step")
+fig.suptitle("1D vs 2D Model G = diag(1.5, 1.0)")
 
 # --- Radial Stress Plot ---
-ri_1d = next_state.find_inner_radius()
-radial_stress_1d = np.array([next_state.radial_stress(ri_1d, s) * (s / next_state.compute_r(ri_1d, s)) for s in r_range])
-radial_stress_2d = data_collector.line_history.get("Radial Stress")[1].flatten()
+ri_1d = base_state.find_inner_radius()
+radial_stress_1d = np.array([base_state.radial_stress(ri_1d, s) * (s / base_state.compute_r(ri_1d, s)) for s in r_range])
+radial_stress_2d = data_collector.line_history.get("Radial Stress")[0].flatten()
 
 axs[0].plot(r_range, radial_stress_1d, label="1D (ODE)")
 axs[0].plot(r_range, radial_stress_2d, label="2D (FEM)", linestyle='--')
@@ -103,8 +104,8 @@ axs[0].legend()
 axs[0].grid(True)
 
 # --- Hoop Stress Plot ---
-hoop_stress_1d = np.array([next_state.angular_stress(ri_1d, s) * (next_state.compute_r(ri_1d, s) / s) for s in r_range])
-hoop_stress_2d = data_collector.line_history.get("Hoop Stress")[1].flatten()
+hoop_stress_1d = np.array([base_state.angular_stress(ri_1d, s) * (base_state.compute_r(ri_1d, s) / s) / (base_state.gr_interp(s) * base_state.gt_interp(s)) for s in r_range])
+hoop_stress_2d = data_collector.line_history.get("Hoop Stress")[0].flatten()
 
 axs[1].plot(r_range, hoop_stress_1d, label="1D (ODE)")
 axs[1].plot(r_range, hoop_stress_2d, label="2D (FEM)", linestyle='--')
@@ -115,8 +116,8 @@ axs[1].legend()
 axs[1].grid(True)
 
 # --- Pressure Plot ---
-pressure_1d = np.array([next_state.compute_p(ri_1d, s) for s in r_range])
-pressure_2d = data_collector.line_history.get("p")[1].flatten()
+pressure_1d = np.array([base_state.compute_p(ri_1d, s) for s in r_range])
+pressure_2d = data_collector.line_history.get("p")[0].flatten()
 
 axs[2].plot(r_range, pressure_1d, label="1D (ODE)")
 axs[2].plot(r_range, pressure_2d, label="2D (FEM)", linestyle='--')
@@ -128,9 +129,9 @@ axs[2].grid(True)
 
 # --- Growth Plot ---
 ### NOTE THE DIFFERENCE BETWEEN g_theta AND g_2 ###
-dgt = np.array([next_state.compute_dgt(ri_1d, s) for s in r_range])
-g_2 = next_state.gt*dgt
-growth_2d = data_collector.line_history.get("Cumulative Hoop Growth")[1].flatten()
+dgt = np.array([base_state.compute_dgt(ri_1d, s) for s in r_range])
+g_2 = base_state.gt#*dgt
+growth_2d = data_collector.line_history.get("Cumulative Hoop Growth")[0].flatten()
 axs[3].plot(r_range, g_2, label="1D (ODE)")
 axs[3].plot(r_range, growth_2d, label="2D (FEM)", linestyle='--')
 axs[3].set_title("Cumulative Hoop Growth (g_theta)")
@@ -140,6 +141,6 @@ axs[3].legend()
 axs[3].grid(True)
 
 plt.tight_layout()
-plt.savefig("1D_vs_2D_comparison.png")
+plt.savefig("1D_vs_2D_comparison_constant_scaled_growth.png")
 
 data_collector.close()

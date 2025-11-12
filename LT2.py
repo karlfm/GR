@@ -177,14 +177,14 @@ class FastState:
         
         integral = np.trapezoid(integrand, x)
 
-        # Calculate the constant C = p(Ri) / (gr(Ri) * gt(Ri)^2)
-        C = p_i / (gr_Ri * gt_Ri**2)
+        # Calculate the constant C = p(Ri) / (gr(Ri) * gt(Ri))
+        C = p_i / (gr_Ri * gt_Ri)
         
         # Final pressure calculation
         gr_s = self.gr_interp(s)
         gt_s = self.gt_interp(s)
         
-        return gr_s * gt_s**2 * (C - integral)
+        return gr_s * gt_s * (C - integral)
     
     def radial_stress(self, ri, s):
         """Compute radial stress: Pʳᴿ = μ(R²/r²)(gₒ²/gᵣ) + p(r²/(R²gᵣgₒ²))"""
@@ -230,7 +230,7 @@ class FastState:
 
         # This simplifies to dgt = (g_theta / tau) * (1/sigma_star) * (stress_term - sigma_star)
         
-        stress_term = ((self.mu * (r_val / s)**2 / gt_val**2 + p_val)/ (gr_val * gt_val))
+        stress_term = ((self.mu * (r_val / s)**2 / gt_val**2 + p_val) / (gr_val * gt_val))
 
         dgt = self.tau * (1 / self.lambdaCrit) * (stress_term - self.lambdaCrit) + 1
 
@@ -239,6 +239,9 @@ class FastState:
     def update(self):
         """Create updated state"""
         ri = self.find_inner_radius()
+
+        # print gt values
+        print("gt min/max:", self.gt.min(), self.gt.max())
 
         # Vectorized dgt computation
         dgt = np.array([self.compute_dgt(ri, s) for s in r_range])
@@ -256,13 +259,13 @@ class FastState:
 
 def main():
     # Initialize base state
-    initial_gf = np.ones_like(r_range)
     initial_gr = np.ones_like(r_range)  # No initial growth
+    initial_gt = np.ones_like(r_range)
 
     base_state = FastState(
         _Ri=1.0,
         gr=initial_gr,
-        gt=initial_gf,
+        gt=initial_gt,
         bc=-0.05,
         mu=1.0,
         gMax=1.5,
