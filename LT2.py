@@ -6,7 +6,7 @@ import time
 import matplotlib.pyplot as plt
 
 # Define the material coordinate range
-r_range = np.linspace(1.0, 2.0, 32)  # 64 points from 1 to 2 with step 1/63
+r_range = np.linspace(1.0, 2.0, 64)  # 64 points from 1 to 2 with step 1/63
 
 def plot_and_save(states, r_range, time, n=20, filename="cylinder_LT2.png"):
     """
