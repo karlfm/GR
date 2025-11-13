@@ -105,14 +105,14 @@ def plot_and_save(states, r_range, time, n=20, filename="cylinder_LT2.png"):
 
 class FastState:
     """Optimized state with precomputed values"""
-    def __init__(self, _Ri, gr, gt, bc, mu, gMax, lambdaCrit, gamma, tau):
+    def __init__(self, _Ri, gr, gt, bc, mu, gMax, set_point, gamma, tau):
         self._Ri = _Ri                          # Inner radius
         self.gr = np.array(gr)                  # Radial growth factor
         self.gt = np.array(gt)                  # Circumferential growth factor
         self.bc = bc                            # Boundary condition
         self.mu = mu                            # Shear modulus     
         self.gMax = gMax                        # Growth factor setpoint
-        self.lambdaCrit = lambdaCrit            # Strain setpoint
+        self.set_point = set_point            # Strain setpoint
         self.gamma = gamma                      # Growth exponent
         self.tau = tau                          # Growth timescale
 
@@ -232,7 +232,7 @@ class FastState:
         
         stress_term = ((self.mu * (r_val / s)**2 / gt_val**2 + p_val) / (gr_val * gt_val))
 
-        dgt = self.tau * (1 / self.lambdaCrit) * (stress_term - self.lambdaCrit) + 1
+        dgt = self.tau * (stress_term - self.set_point) / self.set_point + 1
 
         return dgt
     
@@ -241,6 +241,7 @@ class FastState:
         ri = self.find_inner_radius()
 
         # print gt values
+        print("gr min/max:", self.gr.min(), self.gr.max())
         print("gt min/max:", self.gt.min(), self.gt.max())
 
         # Vectorized dgt computation
@@ -249,7 +250,7 @@ class FastState:
 
         return FastState(
             self._Ri, self.gr, new_gt, self.bc, self.mu,
-            self.gMax, self.lambdaCrit, self.gamma, self.tau
+            self.gMax, self.set_point, self.gamma, self.tau
         )
     
     def __str__(self):
@@ -269,7 +270,7 @@ def main():
         bc=-0.05,
         mu=1.0,
         gMax=1.5,
-        lambdaCrit=0.5,
+        set_point=0.5,
         gamma=1,
         tau=0.025
     )

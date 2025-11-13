@@ -240,27 +240,28 @@ def setup_problem(mesh, params):
     stress_nn = dolfinx.fem.Function(scalar_space, name="stress_nn")
     J = dolfinx.fem.Function(scalar_space, name="J")
 
-    g_1 = dolfinx.fem.Function(scalar_space, name="g_1")
-    g_2 = dolfinx.fem.Function(scalar_space, name="g_2")
-    dg2 = dolfinx.fem.Function(scalar_space, name="dg2")
-    g_1.x.array[:] = params["g_1"]
+    g_r = dolfinx.fem.Function(scalar_space, name="g_r")
+    g_t = dolfinx.fem.Function(scalar_space, name="g_t")
+    dgt = dolfinx.fem.Function(scalar_space, name="dgt")
     # initial_gt linear profile from 1 to 1.5
-    # Set g_2 to have a linear profile from 1.0 at the inner radius to 1.5 at the outer radius
+    # Set g_t to have a linear profile from 1.0 at the inner radius to 1.5 at the outer radius
     x_coords = ufl.SpatialCoordinate(mesh)
     r_coord = ufl.sqrt(x_coords[0]**2 + x_coords[1]**2)
     R_i = params["R_i"]
     R_o = params["R_o"]
     
-    # Linear profile: g_2(r) = 1.0 + 0.5 * (r - R_i) / (R_o - R_i)
-    linear_profile = 1.0 + 0.5 * (r_coord - R_i)
+    # Linear profile: g_t(r) = 1.0 + 0.5 * (r - R_i) / (R_o - R_i)
+    linear_profile = 1.0 + 0.1 * (r_coord - R_i)
     
     initial_expression = dolfinx.fem.Expression(
         linear_profile,
         scalar_space.element.interpolation_points(),
     )
-    g_2.interpolate(initial_expression)
+    # g_t.interpolate(initial_expression)
+    g_r.x.array[:] = params["g_r"]
+    # g_t.interpolate(initial_expression)
+    g_t.x.array[:] = params["g_t"]
 
-    # g_2.x.array[:] = params["g_2"]
 
     problem_variables = {
         "u": u,
@@ -275,9 +276,9 @@ def setup_problem(mesh, params):
         "stress_nn": stress_nn,
         "J": J,
         "scalar_space": scalar_space,
-        "g_1": g_1,
-        "g_2": g_2,
-        "dg2": dg2,
+        "g_r": g_r,
+        "g_t": g_t,
+        "dgt": dgt,
     }
 
     return problem_variables
@@ -295,15 +296,15 @@ def weak_formulation(mesh, facet_tags, params, problem_variables, QUAD_DEGREE=8)
     stress_ff = problem_variables["stress_ff"]
     stress_nn = problem_variables["stress_nn"]
     J = problem_variables["J"]
-    g_1 = problem_variables["g_1"]
-    g_2 = problem_variables["g_2"]
-    dg2 = problem_variables["dg2"]
+    g_r = problem_variables["g_r"]
+    g_t = problem_variables["g_t"]
+    dgt = problem_variables["dgt"]
     scalar_space = problem_variables["scalar_space"]
     
     ''' KINEMATICS '''
     #region
     F = ufl.variable(ufl.grad(u) + ufl.Identity(2))
-    G = g_1 * ufl.outer(r0, r0) + g_2 * ufl.outer(f0, f0)
+    G = g_r * ufl.outer(r0, r0) + g_t * ufl.outer(f0, f0)
     A = ufl.variable(F * ufl.inv(G))
     #endregion
     
@@ -363,9 +364,9 @@ def weak_formulation(mesh, facet_tags, params, problem_variables, QUAD_DEGREE=8)
 
         "J_expr": dolfinx.fem.Expression(ufl.det(A), scalar_space.element.interpolation_points()),
 
-        "dg2_expr": dolfinx.fem.Expression(params["dt"] * (stress_ff - params["set_point"]) / params["set_point"] + 1, scalar_space.element.interpolation_points()),
+        "dgt_expr": dolfinx.fem.Expression(params["dt"] * (stress_ff - params["set_point"]) / params["set_point"] + 1, scalar_space.element.interpolation_points()),
 
-        "g2_expr": dolfinx.fem.Expression(g_2 * (params["dt"] * (stress_ff - params["set_point"]) / params["set_point"] + 1), scalar_space.element.interpolation_points()),
+        "g2_expr": dolfinx.fem.Expression(g_t * (params["dt"] * (stress_ff - params["set_point"]) / params["set_point"] + 1), scalar_space.element.interpolation_points()),
     }
 
     F0 = (
@@ -390,11 +391,11 @@ def run_simulation(params, problem_variables, weak_form_defs, data_collector):
 
     R, dR, expressions = weak_form_defs
     u, p = problem_variables["u"], problem_variables["p"]
-    g_1 = problem_variables["g_1"]
-    g_2 = problem_variables["g_2"]
+    g_r = problem_variables["g_r"]
+    g_t = problem_variables["g_t"]
     stress_ff = problem_variables["stress_ff"]
     stress_nn = problem_variables["stress_nn"]
-    dg2 = problem_variables["dg2"]
+    dgt = problem_variables["dgt"]
     J = problem_variables["J"]
 
     petsc_options = {
@@ -420,15 +421,21 @@ def run_simulation(params, problem_variables, weak_form_defs, data_collector):
     stress_ff.interpolate(expressions["stress_ff_expr"])
     stress_nn.interpolate(expressions["stress_nn_expr"])
     J.interpolate(expressions["J_expr"])
+    dgt.interpolate(expressions["dgt_expr"])
+
+    print("updating line data")
     data_collector.update_line_data()
     # data_collector.write(t=time[0])
 
     for i in time_steps:
 
+        g_t.interpolate(expressions["g2_expr"])
+
         print(f"Starting growth step {i + 1} of {params['num_steps']}")
 
         # print g2 values
-        print("g2 min/max:", g_2.x.array.min(), g_2.x.array.max())
+        print("g_r min/max:", g_r.x.array.min(), g_r.x.array.max())
+        print("g_t min/max:", g_t.x.array.min(), g_t.x.array.max())
         solver.solve()
 
         stress_ff.interpolate(expressions["stress_ff_expr"])
@@ -436,8 +443,8 @@ def run_simulation(params, problem_variables, weak_form_defs, data_collector):
         J.interpolate(expressions["J_expr"])
         # u_mag.interpolate(u_mag_expr)
 
-        g_2.interpolate(expressions["g2_expr"])
-        dg2.interpolate(expressions["dg2_expr"])
+        dgt.interpolate(expressions["dgt_expr"])
+        print("updating line data")
         data_collector.update_line_data()
         data_collector.write(t=time[i])
 
@@ -457,8 +464,8 @@ def main():
         "set_point": 0.5,
         "num_steps": 1,
         "mu": 1.0,
-        "g_1": 1.0,
-        "g_2": 1.0,
+        "g_r": 1.0,
+        "g_t": 1.0,
     }
 
     line_points = np.array(
@@ -475,7 +482,7 @@ def main():
     data_collector.register_function("Radial Stress", problem_vars["stress_nn"])
     data_collector.register_line_data("Hoop Stress", problem_vars["stress_ff"])
     data_collector.register_line_data("Radial Stress", problem_vars["stress_nn"])
-    data_collector.register_line_data("Cumulative Hoop Growth", problem_vars["g_2"])
+    data_collector.register_line_data("Cumulative Hoop Growth", problem_vars["g_t"])
     data_collector.register_line_data("p", problem_vars["p"])
     data_collector.setup_writers()
 
