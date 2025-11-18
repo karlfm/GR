@@ -1,11 +1,10 @@
 import LT2
-import FEM_2D.LT2_2D
+import FEM_2D.fem_framework as ff
 import numpy as np
 from dolfinx.io import gmshio
 from mpi4py import MPI
 from pathlib import Path
 import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
 
 ''' 1D Solution '''
 #region
@@ -37,7 +36,7 @@ stress_data = [base_state.radial_stress(ri, x) for x in stress_points]
 
 states = [base_state]
 prev_state = base_state
-num_steps = 19
+num_steps = 5
 for step in range(1, num_steps + 1):  # 2 time steps
     print(f"Time step {step}")
     next_state = prev_state.update()
@@ -74,22 +73,22 @@ line_points = np.array(
     [[r, 0.0] for r in np.linspace(params["R_i"], params["R_o"], 64)]
 )
 
-problem_vars = FEM_2D.LT2_2D.setup_problem(mesh, params)
-weak_form_defs = FEM_2D.LT2_2D.weak_formulation(mesh, facet_tags, params, problem_vars)
+problem_vars = ff.setup_common_variables(mesh, params)
+weak_form_defs = ff.setup_problem(mesh, facet_tags, params, problem_vars)
 
-data_collector = FEM_2D.LT2_2D.DataCollector(comm, output_dir, line_points)
+data_collector = ff.DataCollector(comm, output_dir, line_points)
 data_collector.register_function("u", problem_vars["u"])
 data_collector.register_function("p", problem_vars["p"])
-data_collector.register_function("Hoop Stress", problem_vars["stress_ff"])
-data_collector.register_function("Radial Stress", problem_vars["stress_nn"])
-data_collector.register_line_data("Hoop Stress", problem_vars["stress_ff"])
-data_collector.register_line_data("Radial Stress", problem_vars["stress_nn"])
+data_collector.register_function("Hoop Stress", problem_vars["cauchy_ff"])
+data_collector.register_function("Radial Stress", problem_vars["cauchy_nn"])
+data_collector.register_line_data("Hoop Stress", problem_vars["cauchy_ff"])
+data_collector.register_line_data("Radial Stress", problem_vars["cauchy_nn"])
 data_collector.register_line_data("Cumulative Hoop Growth", problem_vars["g_t"])
 data_collector.register_line_data("Incremental Hoop Growth", problem_vars["dgt"])
 data_collector.register_line_data("p", problem_vars["p"])
 data_collector.setup_writers()
 
-time = FEM_2D.LT2_2D.run_simulation(
+time = ff.run_simulation(
     params, problem_vars, weak_form_defs, data_collector
     )
 
