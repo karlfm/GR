@@ -1,12 +1,8 @@
 import numpy as np
-from scipy.optimize import brentq
-from scipy import interpolate
-from dataclasses import dataclass
+from cylinder_functions import BaseState
 import time
 import matplotlib.pyplot as plt
 
-# Define the material coordinate range
-r_range = np.linspace(1.0, 2.0, 64)  # 64 points from 1 to 2 with step 1/63
 
 def plot_and_save(states, r_range, time, n=20, filename="cylinder_LT2.png"):
     """
@@ -103,168 +99,27 @@ def plot_and_save(states, r_range, time, n=20, filename="cylinder_LT2.png"):
     plt.close(fig)
     print("✓ Plot saved.")
 
-class FastState:
-    """Optimized state with precomputed values"""
-    def __init__(self, _Ri, gr, gt, bc, mu, gMax, set_point, gamma, tau):
-        self._Ri = _Ri                          # Inner radius
-        self.gr = np.array(gr)                  # Radial growth factor
-        self.gt = np.array(gt)                  # Circumferential growth factor
-        self.bc = bc                            # Boundary condition
-        self.mu = mu                            # Shear modulus     
-        self.gMax = gMax                        # Growth factor setpoint
-        self.set_point = set_point            # Strain setpoint
-        self.gamma = gamma                      # Growth exponent
-        self.tau = tau                          # Growth timescale
+class LT2State(BaseState):
 
-        #Interpolate gr
-        self.gr_interp = interpolate.interp1d(
-            r_range, self.gr, kind='linear',
-            bounds_error=False, fill_value='extrapolate'
-        )
-
-        # Interpolate gt
-        self.gt_interp = interpolate.interp1d(
-            r_range, self.gt, kind='linear',
-            bounds_error=False, fill_value='extrapolate'
-        )
-   
-    def compute_r(self, ri, s):
-        """Solve r = sqrt(ri^2 + 2*∫s^2*gr*gt^2ds)"""
-        if s <= self._Ri:
-            return ri
-        
-        # Simple trapezoidal integration
-        x = np.linspace(self._Ri, s, 200)
-        integrand = self.gr_interp(x) * self.gt_interp(x) * x
-        integral = np.trapezoid(integrand, x)
-        return np.sqrt(ri**2 + 2 * integral)
-    
-    def compute_p(self, ri, s):
-        """ Solve p
-        """
-
-        # Boundary condition for pressure at the inner radius Ri
-        gr_Ri = self.gr_interp(self._Ri)
-        gt_Ri = self.gt_interp(self._Ri)
-        
-        # From radial stress boundary condition: sigma_rr(Ri) = bc
-        # sigma_rr = (mu/gr)*(s/r)^2 * gt - p
-        # bc = (mu/gr_Ri)*(Ri/ri)^2 * gt_Ri - p_i => p_i = (mu/gr_Ri)*(Ri/ri)^2 * gt_Ri - bc
-        p_i = self.bc * gr_Ri * gt_Ri - self.mu * (self._Ri / ri)**2 * gt_Ri**2
-
-        if s <= self._Ri:
-            return p_i
-
-        # Define integration points
-        x = np.linspace(self._Ri, s, 200)
-        
-        # Pre-calculate values needed for the integral
-        r_vals = np.array([self.compute_r(ri, si) for si in x])
-        gr_vals = self.gr_interp(x)
-        gt_vals = self.gt_interp(x)
-        dgr_ds = np.gradient(gr_vals, x)
-        dgt_ds = np.gradient(gt_vals, x)
-        # dgr_ds, dgt_ds = self._get_derivatives(s)
-
-        # Calculate each term of the integrand
-        term1 = 2 * (x / r_vals**2) * (gt_vals / gr_vals)
-        term2 = - (x**3 / r_vals**4) * gt_vals**2
-        term3 = (x**2 / r_vals**2) / gr_vals * dgt_ds
-        term4 = -(x**2 / r_vals**2) * (gt_vals / gr_vals**2) * dgr_ds
-        term5 = - 1 / (x * gt_vals**2)
-        
-        integrand = self.mu * (term1 + term2 + term3 + term4 + term5)
-        
-        integral = np.trapezoid(integrand, x)
-
-        # Calculate the constant C = p(Ri) / (gr(Ri) * gt(Ri))
-        C = p_i / (gr_Ri * gt_Ri)
-        
-        # Final pressure calculation
-        gr_s = self.gr_interp(s)
-        gt_s = self.gt_interp(s)
-        
-        return gr_s * gt_s * (C - integral)
-    
-    def radial_stress(self, ri, s):
-        """Compute radial stress: Pʳᴿ = μ(R²/r²)(gₒ²/gᵣ) + p(r²/(R²gᵣgₒ²))"""
-        r_val = self.compute_r(ri, s)
-        gr_val = self.gr_interp(s)
-        gt_val = self.gt_interp(s)
-        p_val = self.compute_p(ri, s)
-        
-        term1 = self.mu * (s / r_val) * (gt_val / gr_val)
-        term2 = p_val * (r_val / s) / (gr_val * gt_val)
-        
-        return term1 + term2
-    
-    def angular_stress(self, ri, s):
-        r_val = self.compute_r(ri, s)
-        gt_val = self.gt_interp(s)
-        p_val = self.compute_p(ri, s)
-        
-        term1 = self.mu * (r_val / s) / (gt_val**2)
-        term2 = p_val * (s / r_val)
-        
-        return term1 + term2
-
-    def find_inner_radius(self):
-        """Find inner radius using root finding"""
-        def objective(ri):
-            return self.radial_stress(ri, 2.0)
-        
-        # Use a good initial guess based on the previous value
-        try:
-            return brentq(objective, self._Ri - 0.5, self._Ri + 0.5, 
-                         xtol=1e-6, maxiter=20)
-        except:
-            # If that fails, try a wider bracket
-            return brentq(objective, 0.5, 2.5, xtol=1e-6)
-    
     def compute_dgt(self, ri, s):
-        """Compute growth rate based on circumferential stress."""
-        r_val = self.compute_r(ri, s)
-        gr_val = self.gr_interp(s)
-        gt_val = self.gt_interp(s)
-        p_val = self.compute_p(ri, s)
 
-        # This simplifies to dgt = (g_theta / tau) * (1/sigma_star) * (stress_term - sigma_star)
-        
-        stress_term = ((self.mu * (r_val / s)**2 / gt_val**2 + p_val) / (gr_val * gt_val))
+        stress_term = self.hoop_cauchy(ri, s)
 
         dgt = self.tau * (stress_term - self.set_point) / self.set_point + 1
 
         return dgt
-    
-    def update(self):
-        """Create updated state"""
-        ri = self.find_inner_radius()
 
-        # print gt values
-        print("gr min/max:", self.gr.min(), self.gr.max())
-        print("gt min/max:", self.gt.min(), self.gt.max())
-
-        # Vectorized dgt computation
-        dgt = np.array([self.compute_dgt(ri, s) for s in r_range])
-        new_gt = self.gt * dgt
-
-        return FastState(
-            self._Ri, self.gr, new_gt, self.bc, self.mu,
-            self.gMax, self.set_point, self.gamma, self.tau
-        )
-    
-    def __str__(self):
-        return (f"State(_Ri={self._Ri}, gr={self.gr}, "
-                f"gf=[{self.gt[0]:.6f}, {self.gt[-1]:.6f}], "
-                f"bc={self.bc}, mu={self.mu})")
+    def compute_dgr(self, ri, s):
+        return 1.0
 
 def main():
+    R_range = np.arange(1, 2 + 1/64, 1/64)
     # Initialize base state
-    initial_gr = np.ones_like(r_range)  # No initial growth
-    initial_gt = np.ones_like(r_range)
+    initial_gr = np.ones_like(R_range)  # No initial growth
+    initial_gt = np.ones_like(R_range)
 
-    base_state = FastState(
-        _Ri=1.0,
+    base_state = LT2State(
+        R=R_range,
         gr=initial_gr,
         gt=initial_gt,
         bc=-0.05,
@@ -291,7 +146,7 @@ def main():
     states = [base_state]
     current_state = base_state
     
-    n = 10
+    n = 20
     for i in range(n):
         print(f"  Iteration {i+1}/{n}", end="", flush=True)
         start = time.time()
@@ -323,7 +178,7 @@ def main():
     print("Last gs:", gs[-1][:3], "...")
     
     time_points = np.arange(n) * base_state.tau
-    plot_and_save(states[:-1], r_range, time=time_points)
+    plot_and_save(states[:-1], R_range, time=time_points)
 
 if __name__ == "__main__":
     start_time = time.time()
