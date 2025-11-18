@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 # Define the material coordinate range
 r_range = np.linspace(1.0, 2.0, 64)  # 64 points from 1 to 2 with step 1/63
 
-def plot_and_save(states, r_range, time, n=20, filename="cylinder_LT2.png"):
+def plot_and_save(states, r_range, time, n=20, filename="cylinder_GEG.png"):
     """
     Plots various simulation results for n evenly spaced states and saves the figure.
     """
@@ -66,7 +66,7 @@ def plot_and_save(states, r_range, time, n=20, filename="cylinder_LT2.png"):
         ri = state.find_inner_radius()
         triggers = [state.compute_dgt(ri, s) for s in r_range]
         ax.plot(r_range, triggers, color=colors[i], label=f"Iter {state_idx}")
-    ax.axhline(1, color='r', linestyle='--', label="Equilibrium (0)")
+    ax.axhline(0, color='r', linestyle='--', label="Equilibrium (0)")
     ax.set_title("Growth Trigger vs. Material Coordinate (R)")
     ax.set_xlabel("R")
     ax.set_ylabel(r"dgt = $\frac{R}{r}g_\theta - a_r^*$")
@@ -220,19 +220,19 @@ class FastState:
         except:
             # If that fails, try a wider bracket
             return brentq(objective, 0.5, 2.5, xtol=1e-6)
+        
+    def compute_hoop_strain(self, ri, s):
+        """Compute circumferential strain"""
+        r_val = self.compute_r(ri, s)
+        gt_val = self.gt_interp(s)
+        return r_val / (s * gt_val)
     
     def compute_dgt(self, ri, s):
         """Compute growth rate based on circumferential stress."""
-        r_val = self.compute_r(ri, s)
-        gr_val = self.gr_interp(s)
-        gt_val = self.gt_interp(s)
-        p_val = self.compute_p(ri, s)
-
-        # This simplifies to dgt = (g_theta / tau) * (1/sigma_star) * (stress_term - sigma_star)
         
-        stress_term = ((self.mu * (r_val / s)**2 / gt_val**2 + p_val) / (gr_val * gt_val))
+        strain = self.compute_hoop_strain(ri, s)
 
-        dgt = self.tau * (stress_term - self.set_point) / self.set_point + 1
+        dgt = self.tau * (strain - self.set_point)*(self.gMax - self.gt_interp(s))/(self.gMax - 1)
 
         return dgt
     
@@ -246,7 +246,7 @@ class FastState:
 
         # Vectorized dgt computation
         dgt = np.array([self.compute_dgt(ri, s) for s in r_range])
-        new_gt = self.gt * dgt
+        new_gt = self.gt + dgt
 
         return FastState(
             self._Ri, self.gr, new_gt, self.bc, self.mu,
@@ -272,7 +272,7 @@ def main():
         gMax=1.5,
         set_point=0.5,
         gamma=1,
-        tau=0.025
+        tau=0.05
     )
     
     print("Initial state:", base_state)
@@ -291,7 +291,7 @@ def main():
     states = [base_state]
     current_state = base_state
     
-    n = 10
+    n = 50
     for i in range(n):
         print(f"  Iteration {i+1}/{n}", end="", flush=True)
         start = time.time()

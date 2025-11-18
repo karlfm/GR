@@ -220,19 +220,32 @@ class FastState:
         except:
             # If that fails, try a wider bracket
             return brentq(objective, 0.5, 2.5, xtol=1e-6)
+        
+    def radial_cauchy_stress(self, ri, s):
+        radial_stress = self.radial_stress(ri, s)
+        r_val = self.compute_r(ri, s)
+        return radial_stress * (s / r_val)
     
-    def compute_dgt(self, ri, s):
-        """Compute growth rate based on circumferential stress."""
+    def hoop_cauchy_stress(self, ri, s):
+        hoop_stress = self.angular_stress(ri, s)
         r_val = self.compute_r(ri, s)
         gr_val = self.gr_interp(s)
         gt_val = self.gt_interp(s)
-        p_val = self.compute_p(ri, s)
-
-        # This simplifies to dgt = (g_theta / tau) * (1/sigma_star) * (stress_term - sigma_star)
+        return hoop_stress * (r_val / s) / (gr_val * gt_val)
+    
+    def mandel_trace(self, ri, s):
+        """Compute trace of Mandel stress"""
+        cauchy_r = self.radial_cauchy_stress(ri, s)
+        cauchy_theta = self.hoop_cauchy_stress(ri, s)
+        J = self.gr_interp(s) * self.gt_interp(s)
+        return J * (cauchy_r + cauchy_theta)
+    
+    def compute_dgt(self, ri, s):
+        """Compute growth rate based on circumferential stress."""
         
-        stress_term = ((self.mu * (r_val / s)**2 / gt_val**2 + p_val) / (gr_val * gt_val))
+        mandel_trace = self.mandel_trace(ri, s)
 
-        dgt = self.tau * (stress_term - self.set_point) / self.set_point + 1
+        dgt = self.tau * (mandel_trace - self.set_point)
 
         return dgt
     
@@ -246,7 +259,7 @@ class FastState:
 
         # Vectorized dgt computation
         dgt = np.array([self.compute_dgt(ri, s) for s in r_range])
-        new_gt = self.gt * dgt
+        new_gt = self.gt + dgt
 
         return FastState(
             self._Ri, self.gr, new_gt, self.bc, self.mu,

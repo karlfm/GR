@@ -220,19 +220,18 @@ class FastState:
         except:
             # If that fails, try a wider bracket
             return brentq(objective, 0.5, 2.5, xtol=1e-6)
+        
+    def elastic_hoop_strain(self, ri, s):
+        """Compute hoop strain"""
+        r_val = self.compute_r(ri, s)
+        return ((r_val**2 / s**2) / self.gt_interp(s)**2 - 1)/2
     
     def compute_dgt(self, ri, s):
         """Compute growth rate based on circumferential stress."""
-        r_val = self.compute_r(ri, s)
-        gr_val = self.gr_interp(s)
-        gt_val = self.gt_interp(s)
-        p_val = self.compute_p(ri, s)
-
-        # This simplifies to dgt = (g_theta / tau) * (1/sigma_star) * (stress_term - sigma_star)
         
-        stress_term = ((self.mu * (r_val / s)**2 / gt_val**2 + p_val) / (gr_val * gt_val))
+        elastic_strain = self.elastic_hoop_strain(ri, s)
 
-        dgt = self.tau * (stress_term - self.set_point) / self.set_point + 1
+        dgt = (self.tau*(np.sqrt(2 * elastic_strain + 1) - 1 - self.set_point) + 1)**(1/3)
 
         return dgt
     

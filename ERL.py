@@ -8,13 +8,13 @@ import matplotlib.pyplot as plt
 # Define the material coordinate range
 r_range = np.linspace(1.0, 2.0, 64)  # 64 points from 1 to 2 with step 1/63
 
-def plot_and_save(states, r_range, time, n=20, filename="cylinder_LT2.png"):
+def plot_and_save(states, r_range, time, n=20, filename="cylinder_ERL.png"):
     """
     Plots various simulation results for n evenly spaced states and saves the figure.
     """
     print(f"\nGenerating and saving plot to {filename}...")
     fig, axs = plt.subplots(3, 2, figsize=(15, 12))
-    fig.suptitle("LT2 (hoop driven hoop stress)", fontsize=16)
+    fig.suptitle("ERL (penalty term)", fontsize=16)
     
     num_total_states = len(states)
     if n >= num_total_states:
@@ -112,7 +112,7 @@ class FastState:
         self.bc = bc                            # Boundary condition
         self.mu = mu                            # Shear modulus     
         self.gMax = gMax                        # Growth factor setpoint
-        self.set_point = set_point            # Strain setpoint
+        self.set_point = set_point              # Strain setpoint
         self.gamma = gamma                      # Growth exponent
         self.tau = tau                          # Growth timescale
 
@@ -208,6 +208,46 @@ class FastState:
         
         return term1 + term2
 
+    def strain_energy(self, ri, s):
+        """Compute strain energy density"""
+        r_val = self.compute_r(ri, s)
+        gt_val = self.gt_interp(s)
+
+        I1 = ((s / r_val) * gt_val)**2 + (r_val / (s * gt_val))**2
+        
+        W = (self.mu / 2) * (I1 - 2)
+        
+        return W
+    
+    def Mandel_stress(self, ri, s):
+        """Compute Mandel stress"""
+        r_val = self.compute_r(ri, s)
+        gr_val = self.gr_interp(s)
+        gt_val = self.gt_interp(s)
+        p_val = self.compute_p(ri, s)
+
+        # Radial Mandel stress
+        M_rr = self.mu * (s / r_val)**2 * (gt_val / gr_val) + p_val / (gr_val * gt_val)
+
+        # Circumferential Mandel stress
+        M_tt = self.mu * (r_val / s)**2 / (gr_val * gt_val**3) + p_val / (gr_val * gt_val)
+
+        return M_rr, M_tt
+    
+    def Eshelby_stress(self, ri, s):
+        """Compute Eshelby stress"""
+        strain_energy = self.strain_energy(ri, s)
+        M_rr, M_tt = self.Mandel_stress(ri, s)
+
+        E_rr = strain_energy - M_rr
+        E_tt = strain_energy - M_tt
+
+        return E_rr, E_tt
+
+    def growth_term(self, ri, s):
+        detG = self.gr_interp(s) * self.gt_interp(s)
+        return detG*((detG - 1) / (detG + 1)**3)
+    
     def find_inner_radius(self):
         """Find inner radius using root finding"""
         def objective(ri):
@@ -223,18 +263,23 @@ class FastState:
     
     def compute_dgt(self, ri, s):
         """Compute growth rate based on circumferential stress."""
-        r_val = self.compute_r(ri, s)
-        gr_val = self.gr_interp(s)
-        gt_val = self.gt_interp(s)
-        p_val = self.compute_p(ri, s)
-
-        # This simplifies to dgt = (g_theta / tau) * (1/sigma_star) * (stress_term - sigma_star)
         
-        stress_term = ((self.mu * (r_val / s)**2 / gt_val**2 + p_val) / (gr_val * gt_val))
+        Eshelby_rr, Eshelby_tt = self.Eshelby_stress(ri, s)
+        growth_term = self.growth_term(ri, s)
 
-        dgt = self.tau * (stress_term - self.set_point) / self.set_point + 1
+        dgt = self.tau * (self.set_point - Eshelby_tt - 0 * growth_term) + 1
 
         return dgt
+    
+    def compute_dgr(self, ri, s):
+        """Compute radial growth rate based on radial stress."""
+        
+        Eshelby_rr, Eshelby_tt = self.Eshelby_stress(ri, s)
+        growth_term = self.growth_term(ri, s)
+
+        dgr = self.tau * (self.set_point - Eshelby_rr - 0 * growth_term) + 1
+
+        return dgr
     
     def update(self):
         """Create updated state"""
@@ -245,11 +290,13 @@ class FastState:
         print("gt min/max:", self.gt.min(), self.gt.max())
 
         # Vectorized dgt computation
+        dgr = np.array([self.compute_dgr(ri, s) for s in r_range])
+        new_gr = self.gr * dgr
         dgt = np.array([self.compute_dgt(ri, s) for s in r_range])
         new_gt = self.gt * dgt
 
         return FastState(
-            self._Ri, self.gr, new_gt, self.bc, self.mu,
+            self._Ri, new_gr, new_gt, self.bc, self.mu,
             self.gMax, self.set_point, self.gamma, self.tau
         )
     
@@ -291,7 +338,7 @@ def main():
     states = [base_state]
     current_state = base_state
     
-    n = 10
+    n = 50
     for i in range(n):
         print(f"  Iteration {i+1}/{n}", end="", flush=True)
         start = time.time()
