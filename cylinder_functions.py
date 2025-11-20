@@ -190,6 +190,12 @@ class BaseState:
         gt_val = self.gt_interp(s)
         return r_val / (s * gt_val)
     
+    def elastic_hoop_strain(self, ri, s):
+        """Compute Green-Lagrange hoop strain"""
+        a_t = self.hoop_strain(ri, s)
+        E_tt = 0.5 * (a_t**2 - 1)
+        return E_tt
+
     def strain_energy_density(self, ri, s):
         """Compute strain energy density"""
         a_r = self.radial_strain(ri, s)

@@ -64,7 +64,7 @@ class DataCollector:
             writer.close()
 
 def setup_common_variables(mesh, params):
-     #region
+    #region
     QUAD_DEGREE = 8  # The number of points used in the quadrature scheme.
 
     # Create a second order Lagrange function space for displacement
@@ -129,7 +129,7 @@ def setup_common_variables(mesh, params):
     r0.x.array[:] = np.array(e_r).T.reshape(-1)
 
     elastic_strain_ff = dolfinx.fem.Function(scalar_space, name="elastic_strain_ff")
-    elastic_strain_nn = dolfinx.fem.Function(scalar_space, name="elastic_strain_nn")
+    elastic_strain_rr = dolfinx.fem.Function(scalar_space, name="elastic_strain_rr")
     strain_ff = dolfinx.fem.Function(scalar_space, name="strain_ff")
     strain_nn = dolfinx.fem.Function(scalar_space, name="strain_nn")
     cauchy_ff = dolfinx.fem.Function(scalar_space, name="cauchy_ff")
@@ -162,7 +162,7 @@ def setup_common_variables(mesh, params):
         "f0": f0,
         "r0": r0,
         "elastic_strain_ff": elastic_strain_ff,
-        "elastic_strain_nn": elastic_strain_nn,
+        "elastic_strain_rr": elastic_strain_rr,
         "strain_ff": strain_ff,
         "strain_nn": strain_nn,
         "cauchy_ff": cauchy_ff,
@@ -177,7 +177,7 @@ def setup_common_variables(mesh, params):
 
     return problem_variables
 
-def setup_problem(mesh, facet_tags, params, problem_variables, QUAD_DEGREE=8):
+def setup_problem(mesh, facet_tags, params, problem_variables, growth_laws, QUAD_DEGREE=8):
     r = problem_variables["r"]
     u = problem_variables["u"]
     v = problem_variables["v"]
@@ -189,7 +189,7 @@ def setup_problem(mesh, facet_tags, params, problem_variables, QUAD_DEGREE=8):
     r0 = problem_variables["r0"]
     cauchy_ff = problem_variables["cauchy_ff"]
     cauchy_nn = problem_variables["cauchy_nn"]
-    elastic_strain_nn = problem_variables["elastic_strain_nn"]
+    elastic_strain_rr = problem_variables["elastic_strain_rr"]
     elastic_strain_ff = problem_variables["elastic_strain_ff"]
     strain_ff = problem_variables["strain_ff"]
     strain_nn = problem_variables["strain_nn"]
@@ -264,7 +264,7 @@ def setup_problem(mesh, facet_tags, params, problem_variables, QUAD_DEGREE=8):
             scalar_space.element.interpolation_points(),
         ),
 
-        "elastic_strain_nn_expr": dolfinx.fem.Expression(  # hoop strain
+        "elastic_strain_rr_expr": dolfinx.fem.Expression(  # hoop strain
         ufl.inner((A.T * A - ufl.Identity(2)) / 2 * r0, r0),
         scalar_space.element.interpolation_points(),
         ),
@@ -316,15 +316,18 @@ def setup_problem(mesh, facet_tags, params, problem_variables, QUAD_DEGREE=8):
         )
         ,
 
-        ### GROWTH ###
-        "dgt_expr": dolfinx.fem.Expression(params["dt"] * (cauchy_ff - params["set_point"]) / params["set_point"] + 1, scalar_space.element.interpolation_points()),
+        # ### GROWTH ###
+        # "dgt_expr": dolfinx.fem.Expression(params["dt"] * (cauchy_ff - params["set_point"]) / params["set_point"] + 1, scalar_space.element.interpolation_points()),
 
-        "gt_expr": dolfinx.fem.Expression(g_t * (params["dt"] * (cauchy_ff - params["set_point"]) / params["set_point"] + 1), scalar_space.element.interpolation_points()),
+        # "gt_expr": dolfinx.fem.Expression(g_t * (params["dt"] * (cauchy_ff - params["set_point"]) / params["set_point"] + 1), scalar_space.element.interpolation_points()),
 
-        "dgr_expr ": dolfinx.fem.Expression(dolfinx.fem.Constant(mesh, dolfinx.default_scalar_type(1.0)), scalar_space.element.interpolation_points()),
+        # "dgr_expr ": dolfinx.fem.Expression(dolfinx.fem.Constant(mesh, dolfinx.default_scalar_type(1.0)), scalar_space.element.interpolation_points()),
 
-        "gr_expr": dolfinx.fem.Expression(g_r, scalar_space.element.interpolation_points()),
+        # "gr_expr": dolfinx.fem.Expression(g_r, scalar_space.element.interpolation_points()),
     }
+
+    growth_expressions = growth_laws(problem_variables, params, scalar_space)
+    expressions.update(growth_expressions)
 
     F0 = (
         elasticity_term + ufl.derivative(pressure_term, u, v) + inner_neumann + outer_robin
@@ -352,7 +355,7 @@ def run_simulation(params, problem_variables, weak_form_defs, data_collector):
     g_r = problem_variables["g_r"]
     g_t = problem_variables["g_t"]
     elastic_strain_ff = problem_variables["elastic_strain_ff"]
-    elastic_strain_nn = problem_variables["elastic_strain_nn"]
+    elastic_strain_rr = problem_variables["elastic_strain_rr"]
     strain_ff = problem_variables["strain_ff"]
     strain_nn = problem_variables["strain_nn"]
     cauchy_ff = problem_variables["cauchy_ff"]
@@ -380,14 +383,14 @@ def run_simulation(params, problem_variables, weak_form_defs, data_collector):
     time = [params["dt"] * i for i in time_steps]
 
     solver.solve()
-    elastic_strain_nn.interpolate(expressions["elastic_strain_nn_expr"])
+    elastic_strain_rr.interpolate(expressions["elastic_strain_rr_expr"])
     elastic_strain_ff.interpolate(expressions["elastic_strain_ff_expr"])
     strain_ff.interpolate(expressions["strain_ff_expr"])
     strain_nn.interpolate(expressions["strain_nn_expr"])
     cauchy_ff.interpolate(expressions["cauchy_ff_expr"])
     cauchy_nn.interpolate(expressions["cauchy_nn_expr"])
     dgt.interpolate(expressions["dgt_expr"])
-    dgr.interpolate(expressions["dgr_expr "])
+    dgr.interpolate(expressions["dgr_expr"])
     u_r.interpolate(expressions["u_r_expr"])
 
     print("updating line data")
@@ -406,7 +409,7 @@ def run_simulation(params, problem_variables, weak_form_defs, data_collector):
         print("g_t min/max:", g_t.x.array.min(), g_t.x.array.max())
         solver.solve()
 
-        elastic_strain_nn.interpolate(expressions["elastic_strain_nn_expr"])
+        elastic_strain_rr.interpolate(expressions["elastic_strain_rr_expr"])
         elastic_strain_ff.interpolate(expressions["elastic_strain_ff_expr"])
         strain_ff.interpolate(expressions["strain_ff_expr"])
         strain_nn.interpolate(expressions["strain_nn_expr"])
@@ -415,7 +418,7 @@ def run_simulation(params, problem_variables, weak_form_defs, data_collector):
         u_r.interpolate(expressions["u_r_expr"])
 
         dgt.interpolate(expressions["dgt_expr"])
-        dgr.interpolate(expressions["dgr_expr "])
+        dgr.interpolate(expressions["dgr_expr"])
         print("updating line data")
         data_collector.update_line_data()
         data_collector.write(t=time[i])
