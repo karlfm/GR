@@ -4,7 +4,7 @@ from scipy import interpolate
 
 class BaseState:
     """Optimized state with precomputed values"""
-    def __init__(self, R, gr, gt, bc, mu, gMax, set_point, gamma, tau):
+    def __init__(self, R, gr, gt, bc, mu, gMax, set_point, gamma, tau, flow_rate=None, viscosity_const=None):
         self.R = R                              # Reference radius
         self._Ri = R[0]                         # Inner radius
         self.gr = np.array(gr)                  # Radial growth factor
@@ -15,7 +15,19 @@ class BaseState:
         self.set_point = set_point              # Strain setpoint
         self.gamma = gamma                      # Growth exponent
         self.tau = tau                          # Growth timescale
+        self.flow_rate = flow_rate                   # CHANGED: Flow rate for pressure BC
+        self.viscosity_const = viscosity_const
 
+        # CHANGED: Replace scalar bc with flow parameters
+        self.flow_rate = flow_rate
+        self.viscosity_const = viscosity_const # Represents 8*eta*L / pi
+        
+        self.mu = mu
+        self.gMax = gMax
+        self.set_point = set_point
+        self.gamma = gamma
+        self.tau = tau
+        
         #Interpolate gr
         self.gr_interp = interpolate.interp1d(
             self.R, self.gr, kind='cubic',
@@ -27,6 +39,15 @@ class BaseState:
             self.R, self.gt, kind='cubic',
             bounds_error=False, fill_value='extrapolate'
         )
+
+    def compute_boundary_pressure(self, current_ri):
+        """Calculate P based on Flow Rate Q and current radius r."""
+        # Poiseuille relationship: P = alpha * Q / r^4
+        # Note: Pressure is usually negative in your formulation if it's acting outward, 
+        # but here we calculate magnitude. Ensure sign consistency with your weak form.
+        pressure_magnitude = self.viscosity_const * self.flow_rate / (current_ri**4)
+        return -pressure_magnitude # Assuming negative pressure expands the cylinder
+    
     
     @staticmethod
     def entropy(state1, state2, Rs, dt):
@@ -90,6 +111,7 @@ class BaseState:
         # sigma_rr = (mu/gr)*(s/r)^2 * gt - p
         # bc = (mu/gr_Ri)*(Ri/ri)^2 * gt_Ri - p_i => p_i = (mu/gr_Ri)*(Ri/ri)^2 * gt_Ri - bc
         p_i = self.bc * gr_Ri * gt_Ri - self.mu * (self._Ri / ri)**2 * gt_Ri**2
+        # p_i = self.compute_boundary_pressure(ri) * gr_Ri * gt_Ri - self.mu * (self._Ri / ri)**2 * gt_Ri**2
 
         if s <= self._Ri:
             return p_i
@@ -155,6 +177,49 @@ class BaseState:
         
         return pk1_rr * (s / r_val)
     
+    def mandel_trace(self, ri, s):
+        """Compute trace of Mandel stress"""
+        cauchy_r = self.radial_cauchy(ri, s)
+        cauchy_theta = self.hoop_cauchy(ri, s)
+        J = self.gr_interp(s) * self.gt_interp(s)
+        return J * (cauchy_r + cauchy_theta)
+    
+    def strain_energy(self, ri, s):
+        """Compute strain energy density"""
+        r_val = self.compute_r(ri, s)
+        gt_val = self.gt_interp(s)
+
+        I1 = ((s / r_val) * gt_val)**2 + (r_val / (s * gt_val))**2
+        
+        W = (self.mu / 2) * (I1 - 2)
+        
+        return W
+    
+    def Mandel_stress(self, ri, s):
+        """Compute Mandel stress"""
+        r_val = self.compute_r(ri, s)
+        gr_val = self.gr_interp(s)
+        gt_val = self.gt_interp(s)
+        p_val = self.compute_p(ri, s)
+
+        # Radial Mandel stress
+        M_rr = self.mu * (s / r_val)**2 * (gt_val / gr_val) + p_val / (gr_val * gt_val)
+
+        # Circumferential Mandel stress
+        M_tt = self.mu * (r_val / s)**2 / (gr_val * gt_val**3) + p_val / (gr_val * gt_val)
+
+        return M_rr, M_tt
+    
+    def Eshelby_stress(self, ri, s):
+        """Compute Eshelby stress"""
+        strain_energy = self.strain_energy(ri, s)
+        M_rr, M_tt = self.Mandel_stress(ri, s)
+
+        E_rr = strain_energy - M_rr
+        E_tt = strain_energy - M_tt
+
+        return E_rr, E_tt
+    
     def hoop_cauchy(self, ri, s):
         """Convert PK1 hoop stress to Cauchy stress"""
         r_val = self.compute_r(ri, s)
@@ -172,7 +237,7 @@ class BaseState:
         
         # Use a good initial guess based on the previous value
         try:
-            return brentq(objective, self._Ri - 0.5, self._Ri + 0.5, 
+            return brentq(objective, 0.1, 3, 
                          xtol=1e-6, maxiter=20)
         except:
             # If that fails, try a wider bracket
@@ -236,27 +301,13 @@ class BaseState:
             # Second derivative (2nd order central difference)
             gt_RR = (self.gt_interp(s+h) - 2*gt_s + self.gt_interp(s-h)) / (h**2)
 
-        Ricci = (gr_R * gt_R - gr_s * gt_RR) / (gr_s**3 * gt_s)
 
-        return Ricci
-
-    # def compute_dgt(self, ri, s):
-    #     """Compute growth rate based on circumferential stress."""
-    #     r_val = self.compute_r(ri, s)
-    #     gr_val = self.gr_interp(s)
-    #     gt_val = self.gt_interp(s)
-    #     p_val = self.compute_p(ri, s)
-
-    #     # This simplifies to dgt = (g_theta / tau) * (1/sigma_star) * (stress_term - sigma_star)
+        term1 = (gt_s + s * gt_R) * gr_R
+        term2 = (2 * gt_R + s * gt_RR) * gr_s
         
-    #     stress_term = (self.mu * (r_val / s)**2 / gt_val**2 + p_val) / (gr_val * gt_val)
-
-    #     dgt = self.tau * (stress_term - self.set_point) / self.set_point + 1
-
-    #     return dgt
-    
-    # def compute_dgr(self, ri, s):
-    #     return 1
+        Ricci = 2 * (term1 - term2) / (s * (gr_s**3) * gt_s)
+        
+        return Ricci
     
     def update(self):
         """Create updated state"""
@@ -274,7 +325,8 @@ class BaseState:
 
         return self.__class__(
             self.R, new_gr, new_gt, self.bc, self.mu,
-            self.gMax, self.set_point, self.gamma, self.tau
+            self.gMax, self.set_point, self.gamma, self.tau,
+            flow_rate=self.flow_rate, viscosity_const=self.viscosity_const
         )
     
     # --- Abstract Methods ---
