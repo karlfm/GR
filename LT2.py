@@ -64,7 +64,7 @@ def main():
     initial_gt = np.ones_like(R_range)
 
     dt = 0.001
-    stress_set_point = 0.5
+    stress_set_point = 0.1
     base_state = LT2State(
         R=R_range,
         gr=initial_gr,
@@ -96,7 +96,7 @@ def main():
     states = [base_state]
     current_state = base_state
     
-    num_steps = 1146
+    num_steps = 1430
     for step in range(1, num_steps + 1):  # 2 time steps
         print(f"  Iteration {step}/{num_steps}", end="", flush=True)
         start = time.time()

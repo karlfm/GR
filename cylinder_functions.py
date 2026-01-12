@@ -260,6 +260,12 @@ class BaseState:
         a_t = self.hoop_strain(ri, s)
         E_tt = 0.5 * (a_t**2 - 1)
         return E_tt
+    
+    def elastic_radial_strain(self, ri, s):
+        """Compute Green-Lagrange hoop strain"""
+        a_r = self.radial_strain(ri, s)
+        E_tt = 0.5 * (a_r**2 - 1)
+        return E_tt
 
     def strain_energy_density(self, ri, s):
         """Compute strain energy density"""
@@ -314,8 +320,8 @@ class BaseState:
         ri = self.find_inner_radius()
 
         # print gt values
-        print("gr min/max:", self.gr.min(), self.gr.max())
-        print("gt min/max:", self.gt.min(), self.gt.max())
+        # print("gr min/max:", self.gr.min(), self.gr.max())
+        # print("gt min/max:", self.gt.min(), self.gt.max())
 
         # Vectorized dgt computation
         dgt = np.array([self.compute_dgt(ri, s) for s in self.R])
