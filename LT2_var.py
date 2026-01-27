@@ -4,13 +4,14 @@ import time
 import matplotlib.pyplot as plt
 import plotter
 import saver
+from scipy import interpolate
+
 class LT2State(BaseState):
     
     def compute_dgt(self, ri, s):
 
         stress_term = self.hoop_cauchy(ri, s)
-
-        dgt = self.tau * (stress_term - self.set_point) / self.set_point + 1
+        dgt = self.tau * (stress_term - self.set_point(s)) / self.set_point(s) + 1
 
         return dgt
 
@@ -23,7 +24,7 @@ class LT2State(BaseState):
         Solves the cubic equation for g_theta derived from:
         g_theta^3 * sigma = mu * (r/R)^2 + p * g_theta^2
         """
-        sigma = self.set_point
+        sigma = self.set_point(s)
         if abs(sigma) < 1e-10:
             return 0.0
             
@@ -64,20 +65,49 @@ def main():
     initial_gt = np.ones_like(R_range)
 
     dt = 0.001
-    stress_set_point = 0.1
+    # stress_set_point = 0.5
+    init_set_point = interpolate.interp1d(
+            R_range, np.zeros_like(R_range), kind='cubic',
+            bounds_error=False, fill_value='extrapolate'
+        )
+    
+    init_state = LT2State(
+        R=R_range,
+        gr=initial_gr,
+        gt=initial_gt,
+        bc=-0.025,
+        mu=1.0,
+        gMax=0,
+        set_point=init_set_point,
+        gamma=1,
+        tau=dt,
+        flow_rate = 1.0,
+        viscosity_const = 0.05
+    )
+
+    # Initial calculations
+    ri = init_state.find_inner_radius()
+    stress_points = np.arange(1, 2.1, 0.1)
+    stress_data = [init_state.angular_stress(ri, x) for x in R_range]
+    #interpolate stress data to get set point
+    stress_set_point = interpolate.interp1d(
+            R_range, stress_data, kind='cubic',
+            bounds_error=False, fill_value='extrapolate'
+        )
+
     base_state = LT2State(
         R=R_range,
         gr=initial_gr,
         gt=initial_gt,
-        bc=-0.1,
+        bc=-0.05,
         mu=1.0,
         gMax=1.5,
         set_point=stress_set_point,
         gamma=1,
         tau=dt,
-        flow_rate = None,
-        viscosity_const = None,
-        robin_k = 0.0
+        flow_rate = 1.0,
+        viscosity_const = 0.05
+
     )
     
     print("Initial state:", base_state)
@@ -96,12 +126,9 @@ def main():
     states = [base_state]
     current_state = base_state
     
-    num_steps = 600
+    num_steps = 300 #1500
     for step in range(1, num_steps + 1):  # 2 time steps
         print(f"  Iteration {step}/{num_steps}", end="", flush=True)
-        # print the displacement at the boundaries 
-        ri = current_state.find_inner_radius()
-        print(f"  Inner/Other radius displacement: {current_state.compute_r(ri, ri):.15f}, {current_state.compute_r(ri, R_range[-1]):.15f}")
         start = time.time()
         current_state = current_state.update()
         states.append(current_state)
@@ -112,7 +139,14 @@ def main():
     
     last_state = states[-1]
     ri = last_state.find_inner_radius()
-    stress_data = [last_state.radial_cauchy(ri, x) for x in stress_points]
+    stress_data = [last_state.radial_stress(ri, x) for x in stress_points]
+    
+    # Convert PK1 stress to Cauchy stress
+    # Multiply by (r/R)^2
+    stress_data = [
+        stress_data[i] * (last_state.compute_r(ri, stress_points[i]) / stress_points[i])**2
+        for i in range(len(stress_points))
+    ]    
 
     print("\nFinal stress data:")
     print("[" + ",".join(f"{x:.15f}" for x in stress_data) + "]")
@@ -171,10 +205,10 @@ def main():
         "R_range": R_range.tolist(),
         "dt": dt,
         "number_of_lines": number_of_lines,
-        "stress_set_point": stress_set_point
+        "stress_set_point": stress_set_point(R_range).tolist()
     }
 
-    saver.save_data(data, "LT2_ODE_data.json")
+    saver.save_data(data, "LT2_var_ODE_data.json")
     
     # print("--- Plotting results ---")
 

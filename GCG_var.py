@@ -4,7 +4,7 @@ import numpy as np
 from dolfinx.io import gmshio
 from mpi4py import MPI
 from pathlib import Path
-import plotter
+from scipy import interpolate
 import saver
 
 ''' 1D Solution '''
@@ -23,7 +23,7 @@ class GCGState(BaseState):
         
         mandel_trace = self.mandel_trace(ri, s)
 
-        dgt = self.tau * (mandel_trace - self.set_point) * (self.gMax - self.gt_interp(s)) ** self.gamma / (self.gMax - 1)
+        dgt = self.tau * (mandel_trace - self.set_point(s)) * (self.gMax - self.gt_interp(s)) / (self.gMax - 1)
 
         return dgt
     
@@ -35,10 +35,6 @@ class GCGState(BaseState):
     def update(self):
         """Create updated state"""
         ri = self.find_inner_radius()
-
-        # print gt values
-        print("gr min/max:", self.gr.min(), self.gr.max())
-        print("gt min/max:", self.gt.min(), self.gt.max())
 
         # Vectorized dgt computation
         dgt = np.array([self.compute_dgt(ri, s) for s in self.R])
@@ -54,10 +50,31 @@ class GCGState(BaseState):
 dt = 0.001
 mu= 1.0
 stretch_set_point = 1.1
-stress_set_point = mu * 0.1 # stretch_set_point**2 - 0.05/2
+stress_set_point = stretch_set_point**2 - 0.05/2
 gMax = 0.5
 print("Stress set point:", stress_set_point)
-        
+
+init_state = GCGState(
+    R=R_range,
+    gr=initial_gr,
+    gt=initial_gt,
+    bc=-0.1,
+    mu=mu,
+    gMax=gMax,
+    set_point=0,
+    gamma=1,
+    tau=dt
+)
+
+# Initial calculations
+ri = init_state.find_inner_radius()
+stress_data = [init_state.angular_stress(ri, x) for x in R_range]
+#interpolate stress data to get set point
+stress_set_point = interpolate.interp1d(
+        R_range, stress_data, kind='cubic',
+        bounds_error=False, fill_value='extrapolate'
+        )
+
 base_state = GCGState(
     R=R_range,
     gr=initial_gr,
@@ -66,7 +83,7 @@ base_state = GCGState(
     mu=mu,
     gMax=gMax,
     set_point=stress_set_point,
-    gamma=2,
+    gamma=1,
     tau=dt
 )
 
@@ -77,9 +94,12 @@ stress_data = [base_state.radial_stress(ri, x) for x in stress_points]
 
 states = [base_state]
 prev_state = base_state
-num_steps = 1500
+num_steps = 8196
 for step in range(1, num_steps + 1):  # 2 time steps
-    print(f"Time step {step}")
+    if step % 100 == 0:
+        print(f"Time step {step}")
+        print("gr min/max:", prev_state.gr.min(), prev_state.gr.max())
+        print("gt min/max:", prev_state.gt.min(), prev_state.gt.max())
     next_state = prev_state.update()
     states.append(next_state)
     prev_state = next_state
@@ -128,11 +148,11 @@ data = {
     "R_range": R_range.tolist(),
     "dt": dt,
     "number_of_lines": number_of_lines,
-    "stress_set_point": stress_set_point,
+    "stress_set_point": stress_set_point(R_range).tolist(),
     "gMax": gMax
 }
 
-saver.save_data(data, "GCG_ODE_data.json")
+saver.save_data(data, "GCG_var_ODE_data.json")
 
 # # --- Use the Plotter Class ---
 # plotter_instance = plotter.ComparisonPlotter(R_range, num_steps, model_name="GCG")
