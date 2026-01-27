@@ -38,24 +38,32 @@ def plot_results(file_name):
     R_range = np.array(data_loaded["R_range"])
     dt = data_loaded["dt"]
     number_of_lines = data_loaded["number_of_lines"]
-    stretch_set_point = data_loaded["stretch_set_point"]
+    set_point = data_loaded["stress_set_point"]
     plot_data = data_loaded["plot_data_1d"]
     power_data = data_loaded["power_data"]
     gMax = data_loaded["gMax"]
 
 
     # --- Use the Plotter Class ---
-    plotter_instance = plotter.ComparisonPlotter(R_range, number_of_lines, model_name="GAPK (strain based)")
+    plotter_instance = plotter.ComparisonPlotter(R_range, number_of_lines, model_name="GAPK (stress based)")
 
     # Plot spatial data
-    plotter_instance.plot_spatial_panel((0, 0), "Radial Stress (Cauchy)", "Stress", plot_data["radial_stress"])
-    plotter_instance.plot_spatial_panel((1, 0), "Hoop Stress (Cauchy)"  , "Stress", plot_data["hoop_stress"])
-    plotter_instance.plot_spatial_panel((0, 1), "Radial Stretch"        , "Stretch", plot_data["radial_strain"])
-    plotter_instance.plot_spatial_panel((1, 1), "Hoop Stretch"          , "Stretch", plot_data["hoop_strain"], set_point=stretch_set_point)
-    plotter_instance.plot_spatial_panel((0, 2), "Radial Growth"         , "Growth", plot_data["radial_growth"])
-    plotter_instance.plot_spatial_panel((1, 2), "Hoop Growth"           , "Growth", plot_data["hoop_growth"], set_point=gMax)
+    plotter_instance.plot_spatial_panel((0, 0), "Radial Stress (Cauchy)", "Stress", plot_data["radial_stress"], set_point=set_point)
+    plotter_instance.plot_spatial_panel((1, 0), "Hoop Stress (Cauchy)"  , "Stress", plot_data["hoop_stress"], set_point=set_point)
+    plotter_instance.plot_spatial_panel((0, 1), "Radial Strain"         , "Strain", plot_data["radial_strain"])
+    plotter_instance.plot_spatial_panel((1, 1), "Hoop Strain"           , "Strain", plot_data["hoop_strain"])
+    plotter_instance.plot_spatial_panel((0, 2), "Radial Growth"         , "Growth", plot_data["radial_growth"], set_point=gMax)
+    plotter_instance.plot_spatial_panel((1, 2), "Hoop Growth"           , "Growth", plot_data["hoop_growth"])
     # Finalize and save
-    plotter_instance.finalize_and_save("ODE_GEG_results.png")
+    plotter_instance.finalize_and_save("ODE_GCG_rad_results.png")
+
+     # --- Create separate stimulus plot ---
+    stimulus_plotter = plotter.ComparisonPlotter(R_range, number_of_lines, model_name="GAPK (stress based)", grid_shape=(1, 1))
+
+    stimulus_plotter.plot_spatial_panel((0, 0), "Trace of Mandel stress", "Stress", plot_data["Mandel Trace"], set_point=set_point)
+
+    stimulus_plotter.finalize_and_save("ODE_GAPK_Mandel_Trace.png")
+
 
 if __name__ == "__main__":
-    plot_results("GEG_ODE_data.json")
+    plot_results("GCG_ODE_rad_data.json")

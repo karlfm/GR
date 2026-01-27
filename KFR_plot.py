@@ -38,24 +38,23 @@ def plot_results(file_name):
     R_range = np.array(data_loaded["R_range"])
     dt = data_loaded["dt"]
     number_of_lines = data_loaded["number_of_lines"]
-    stretch_set_point = data_loaded["stretch_set_point"]
+    set_point = data_loaded["set_point"]
     plot_data = data_loaded["plot_data_1d"]
     power_data = data_loaded["power_data"]
-    gMax = data_loaded["gMax"]
-
+    num_steps = data_loaded["num_steps"]
 
     # --- Use the Plotter Class ---
-    plotter_instance = plotter.ComparisonPlotter(R_range, number_of_lines, model_name="GAPK (strain based)")
+    plotter_instance = plotter.ComparisonPlotter(R_range, num_steps, model_name="KDAB")
 
     # Plot spatial data
     plotter_instance.plot_spatial_panel((0, 0), "Radial Stress (Cauchy)", "Stress", plot_data["radial_stress"])
     plotter_instance.plot_spatial_panel((1, 0), "Hoop Stress (Cauchy)"  , "Stress", plot_data["hoop_stress"])
-    plotter_instance.plot_spatial_panel((0, 1), "Radial Stretch"        , "Stretch", plot_data["radial_strain"])
-    plotter_instance.plot_spatial_panel((1, 1), "Hoop Stretch"          , "Stretch", plot_data["hoop_strain"], set_point=stretch_set_point)
-    plotter_instance.plot_spatial_panel((0, 2), "Radial Growth"         , "Growth", plot_data["radial_growth"])
-    plotter_instance.plot_spatial_panel((1, 2), "Hoop Growth"           , "Growth", plot_data["hoop_growth"], set_point=gMax)
-    # Finalize and save
-    plotter_instance.finalize_and_save("ODE_GEG_results.png")
+    plotter_instance.plot_spatial_panel((0, 1), "Radial Stretch"        , "Stretch", plot_data["radial_strain"]  , set_point = set_point)
+    plotter_instance.plot_spatial_panel((1, 1), "Hoop Stretch"          , "Stretch", plot_data["hoop_strain"]    , set_point = set_point)
+    plotter_instance.plot_spatial_panel((0, 2), "Radial Growth"         , "Growth", plot_data["radial_growth"]  , plot_data["Homeostasis"])
+    plotter_instance.plot_spatial_panel((1, 2), "Hoop Growth"           , "Growth", plot_data["hoop_growth"]    , plot_data["Homeostasis"])
+
+    plotter_instance.finalize_and_save("ODE_KFR_results.png")
 
 if __name__ == "__main__":
-    plot_results("GEG_ODE_data.json")
+    plot_results("KFR_ODE_data.json")

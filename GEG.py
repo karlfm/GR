@@ -22,7 +22,7 @@ class GEGState(BaseState):
         
         strain = self.hoop_strain(ri, s)
 
-        dgt = self.tau * (strain - self.set_point)*(self.gMax - self.gt_interp(s))/(self.gMax - 1)
+        dgt = self.tau * (strain - self.set_point) * ((self.gMax - self.gt_interp(s)) / (self.gMax - 1)) ** self.gamma
 
         return dgt
     
@@ -35,10 +35,6 @@ class GEGState(BaseState):
         """Create updated state"""
         ri = self.find_inner_radius()
 
-        # print gt values
-        print("gr min/max:", self.gr.min(), self.gr.max())
-        print("gt min/max:", self.gt.min(), self.gt.max())
-
         # Vectorized dgt computation
         dgt = np.array([self.compute_dgt(ri, s) for s in self.R])
         new_gt = self.gt + dgt
@@ -50,7 +46,7 @@ class GEGState(BaseState):
             self.gMax, self.set_point, self.gamma, self.tau
         )
     
-dt = 0.01#0.001
+dt = 0.001#0.001
 mu= 1.0
 
 stretch_set_point = 1.1
@@ -61,11 +57,11 @@ base_state = GEGState(
     R=R_range,
     gr=initial_gr,
     gt=initial_gt,
-    bc=-0.05,
+    bc=-0.1,
     mu=mu,
     gMax=gMax,
     set_point=stretch_set_point,
-    gamma=1,
+    gamma=2,
     tau=dt
 )
 
@@ -78,9 +74,13 @@ stress_data = [base_state.radial_stress(ri, x) for x in stress_points]
 
 states = [base_state]
 prev_state = base_state
-num_steps = 32768
+num_steps = 30000 # 32768
 for step in range(1, num_steps + 1):  # 2 time steps
-    print(f"Time step {step}")
+    if step % 100 == 0:
+        print(f"Time step {step}")
+        # print gt values
+        print("gr min/max:", prev_state.gr.min(), prev_state.gr.max())
+        print("gt min/max:", prev_state.gt.min(), prev_state.gt.max())
     next_state = prev_state.update()
     states.append(next_state)
     prev_state = next_state
@@ -123,18 +123,18 @@ for i in range(number_of_lines - 1):
     power_data["entropy"].append(power_direct - entropy)
 
 
-    data = {
-        "plot_data_1d": plot_data_1d,
-        "power_data": power_data,
-        "R_range": R_range.tolist(),
-        "dt": dt,
-        "number_of_lines": number_of_lines,
-        "stretch_set_point": stretch_set_point,
-        "gMax": gMax
-    }
+data = {
+    "plot_data_1d": plot_data_1d,
+    "power_data": power_data,
+    "R_range": R_range.tolist(),
+    "dt": dt,
+    "number_of_lines": number_of_lines,
+    "stretch_set_point": stretch_set_point,
+    "gMax": gMax
+}
 
 
-    saver.save_data(data, "GEG_ODE_data.json")
+saver.save_data(data, "GEG_ODE_data.json")
 # print("--- Plotting results ---")
 
 # # --- Use the Plotter Class ---

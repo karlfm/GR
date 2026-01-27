@@ -42,13 +42,13 @@ def plot_results(file_name):
     plot_data = data_loaded["plot_data_1d"]
     power_data = data_loaded["power_data"]
 
-    plotter_instance = plotter.ComparisonPlotter(R_range, number_of_lines, model_name="LT2")
+    plotter_instance = plotter.ComparisonPlotter(R_range, number_of_lines, model_name="LT")
 
     # Plot spatial data
     plotter_instance.plot_spatial_panel((0, 0), "Radial Stress (Cauchy)", "Stress", plot_data["radial_stress"])
-    plotter_instance.plot_spatial_panel((1, 0), "Hoop Stress (Cauchy)", "Stress", plot_data["hoop_stress"], set_point=stress_set_point)
-    plotter_instance.plot_spatial_panel((0, 1), "Radial Strain", "Strain", plot_data["radial_strain"])
-    plotter_instance.plot_spatial_panel((1, 1), "Hoop Strain", "Strain", plot_data["hoop_strain"])
+    plotter_instance.plot_spatial_panel((1, 0), "Hoop Stress (Cauchy)", "Stress", plot_data["hoop_stress"], set_point=stress_set_point)#set_point=stress_set_point)
+    plotter_instance.plot_spatial_panel((0, 1), "Radial Stretch", "Stretch", plot_data["radial_strain"])
+    plotter_instance.plot_spatial_panel((1, 1), "Hoop Stretch", "Stretch", plot_data["hoop_strain"])
     plotter_instance.plot_spatial_panel((0, 2), "Radial Growth", "Growth", plot_data["radial_growth"])
     plotter_instance.plot_spatial_panel((1, 2), "Hoop Growth", "Growth", plot_data["hoop_growth"], plot_data["Homeostasis"])
 

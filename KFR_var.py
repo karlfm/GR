@@ -1,7 +1,7 @@
 import numpy as np
 from cylinder_functions import BaseState
 import time
-import plotter
+from scipy import interpolate
 import saver
 
 def main():
@@ -11,12 +11,6 @@ def main():
     initial_gt = np.ones_like(R_range)
     initial_gr = np.ones_like(R_range)  # No initial growth
 
-    beta = 0.01 # they have 1.0 in their paper! How did they get that to converge?
-    mu = 1 #this is a_0 from their paper
-    stretch_set_point = 1.1
-    #Green-Lagrange set point
-    GL_set_point = 0.5*(stretch_set_point - 1)    # 0.105, in the paper GL_set_point is 0.13
-
     class KFRState(BaseState):
 
         def compute_dgt(self, ri, s):
@@ -24,7 +18,7 @@ def main():
             
             elastic_strain = self.elastic_hoop_strain(ri, s)
 
-            dg = (self.tau*(np.sqrt(2 * elastic_strain + 1) - 1 - self.set_point) + 1)**(1/3)
+            dg = (self.tau*(np.sqrt(2 * elastic_strain + 1) - 1 - self.set_point(s)) + 1)**(1/3)
 
             return dg
         
@@ -33,7 +27,7 @@ def main():
             
             elastic_strain = self.elastic_hoop_strain(ri, s)
 
-            dg = (self.tau*(np.sqrt(2 * elastic_strain + 1) - 1 - self.set_point) + 1)**(1/3)
+            dg = (self.tau*(np.sqrt(2 * elastic_strain + 1) - 1 - self.set_point(s)) + 1)**(1/3)
 
             return dg
         
@@ -43,21 +37,50 @@ def main():
             # \frac{r}{R(1+s_\mathrm{hom})}
 
             r = self.compute_r(ri, s)
-            g_homeo = r / (s * (1 + self.set_point))
+            g_homeo = r / (s * (1 + self.set_point(s)))
 
             return g_homeo
 
-    print("Using Green-Lagrange set point:", GL_set_point)
-    base_state = KFRState(
+
+    dt = 0.01
+    mu=1.0
+    strain_set_point = 1.1
+    #Green-Lagrange set point
+    init_set_point = 0.5*(strain_set_point**2 - 1)
+
+    print("Using Green-Lagrange set point:", init_set_point)
+
+    init_state = KFRState(
         R=R_range,
         gr=initial_gr,
         gt=initial_gt,
         bc=-0.1,
         mu=mu,
-        gMax=None,
+        gMax=1.5,
+        set_point=0,
+        gamma=1,
+        tau=dt
+    )
+
+    # Initial calculations
+    ri = init_state.find_inner_radius()
+    strain_data = np.array([init_state.hoop_strain(ri, x) for x in R_range])
+    #interpolate stress data to get set point
+    GL_set_point = interpolate.interp1d(
+        R_range, (strain_data**2 - 1)/2, kind='cubic',
+        bounds_error=False, fill_value='extrapolate'
+        )
+    
+    base_state = KFRState(
+        R=R_range,
+        gr=initial_gr,
+        gt=initial_gt,
+        bc=-0.05,
+        mu=mu,
+        gMax=1.5,
         set_point=GL_set_point,
-        gamma=None,
-        tau=beta
+        gamma=1,
+        tau=dt
     )
 
     
@@ -77,14 +100,14 @@ def main():
     states = [base_state]
     current_state = base_state
     
-    num_steps = 3000
+    num_steps = 16000
     for step in range(1, num_steps + 1):  # 2 time steps
-        start = time.time()
         if step % 100 == 0:
             print(f"  Iteration {step}/{num_steps   }", end="", flush=True)
-            print(f" - {time.time()-start:.3f}s")
+        start = time.time()
         current_state = current_state.update()
         states.append(current_state)
+        # print(f" - {time.time()-start:.3f}s")
     
     # Final calculations
     print("\nFinal state:", states[-1])
@@ -141,10 +164,10 @@ def main():
         state1 = states_to_plot_1d[i]
         state2 = states_to_plot_1d[i+1]
         # power_split = KFR.power(state1, state2, R_range, dt)
-        power_direct = BaseState.power_direct(state1, state2, R_range, beta)
+        power_direct = BaseState.power_direct(state1, state2, R_range, dt)
         # power_data["split"].append(power_split)
         power_data["power"].append(power_direct)
-        entropy = BaseState.entropy(state1, state2, R_range, beta)
+        entropy = BaseState.entropy(state1, state2, R_range, dt)
         power_data["internal_entropy"].append(entropy)
         power_data["entropy"].append(power_direct - entropy)
         # power_data["difference"].append(power_direct - power_split)
@@ -154,13 +177,13 @@ def main():
     "plot_data_1d": plot_data_1d,
     "power_data": power_data,
     "R_range": R_range.tolist(),
-    "dt": beta,
+    "dt": dt,
     "num_steps": num_steps,
     "number_of_lines": number_of_lines,
-    "set_point": stretch_set_point,
+    "set_point": GL_set_point(R_range).tolist(),
     }
 
-    saver.save_data(data, "KFR_ODE_data.json")
+    saver.save_data(data, "KFR_var_ODE_data.json")
 
     
     # # --- Use the Plotter Class ---
